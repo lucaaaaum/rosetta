@@ -35,6 +35,10 @@
               gopls
               gotools
               go-tools
+              dotnet-sdk_10
+            ];
+            buildInputs = with pkgs; [
+              dotnet-runtime_10
             ];
           };
         }
@@ -52,6 +56,7 @@
               gopls
               gotools
               go-tools
+              dotnet-sdk_10
             ];
           };
         }
