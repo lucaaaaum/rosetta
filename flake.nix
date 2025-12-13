@@ -25,7 +25,7 @@
           pkgs = nixpkgsFor.${system};
         in
         {
-          supalink = pkgs.buildGoModule {
+          default = pkgs.buildGoModule {
             pname = "rosetta";
             inherit version;
             src = ./.;
