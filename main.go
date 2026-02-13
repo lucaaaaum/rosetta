@@ -50,6 +50,7 @@ var rootCmd = &cobra.Command{
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		rootDir := args[0]
+		skipPackagesNotFound, _ := cmd.Flags().GetBool("skip-packages-not-found")
 
 		if _, err := os.Stat(rootDir); os.IsNotExist(err) {
 			return err
@@ -124,6 +125,9 @@ var rootCmd = &cobra.Command{
 			hashOutput, err := hashCommand.Output()
 			if err != nil {
 				println("Failed to resolve package:", pkg.Name, pkg.Version)
+				if skipPackagesNotFound {
+					continue
+				}
 				return err
 			}
 			pkg.Hash = strings.TrimSpace(string(hashOutput))
@@ -153,5 +157,6 @@ var rootCmd = &cobra.Command{
 }
 
 func main() {
+	rootCmd.Flags().BoolP("skip-packages-not-found", "s", false, "Skip packages that cannot be found in the local NuGet cache")
 	rootCmd.Execute()
 }
