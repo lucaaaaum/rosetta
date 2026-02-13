@@ -143,6 +143,9 @@ var rootCmd = &cobra.Command{
 		depsNixFile.WriteString("{ fetchNuGet }: [\n")
 
 		for _, pkg := range packages {
+			if pkg.Hash == "" {
+				continue
+			}
 			depsNixFile.WriteString("  (fetchNuGet {\n")
 			depsNixFile.WriteString("    pname = \"" + pkg.Name + "\";\n")
 			depsNixFile.WriteString("    version = \"" + pkg.Version + "\";\n")
