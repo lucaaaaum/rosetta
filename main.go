@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"io"
 	"os"
 	"os/exec"
 	"path"
@@ -50,7 +51,9 @@ var rootCmd = &cobra.Command{
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		rootDir := args[0]
-		skipPackagesNotFound, _ := cmd.Flags().GetBool("skip-packages-not-found")
+		flags := cmd.Flags()
+		skipPackagesNotFound, _ := flags.GetBool("skip-packages-not-found")
+		copyDependencies, _ := flags.GetStringArray("copy-dependencies")
 
 		if _, err := os.Stat(rootDir); os.IsNotExist(err) {
 			return err
@@ -140,7 +143,23 @@ var rootCmd = &cobra.Command{
 		}
 		defer depsNixFile.Close()
 
-		depsNixFile.WriteString("{ fetchNuGet }: [\n")
+		if len(copyDependencies) > 0 {
+			os.Mkdir("dependencies", 0755)
+			depsNixFile.WriteString(
+`{ fetchNuGet }:
+let
+	local = path: builtins.path { inherit path; };
+in
+[
+`,
+			)
+		} else {
+			depsNixFile.WriteString(
+`{ fetchNuGet }: 
+[
+`,
+			)
+		}
 
 		for _, pkg := range packages {
 			if pkg.Hash == "" {
@@ -150,6 +169,17 @@ var rootCmd = &cobra.Command{
 			depsNixFile.WriteString("    pname = \"" + pkg.Name + "\";\n")
 			depsNixFile.WriteString("    version = \"" + pkg.Version + "\";\n")
 			depsNixFile.WriteString("    sha256 = \"" + pkg.Hash + "\";\n")
+			for _, copyDependency := range copyDependencies {
+				if copyDependency == pkg.Name+":"+pkg.Version {
+					filename := strings.ToLower(pkg.Name) + "." + strings.ToLower(pkg.Version) + ".nupkg"
+					destinationPath := path.Join("dependencies", filename)
+					destination, _ := os.Create(destinationPath)
+					sourcePath := path.Join(nugetDir, strings.ToLower(pkg.Name), strings.ToLower(pkg.Version), filename)
+					source, _ := os.Open(sourcePath)
+					io.Copy(destination, source)
+					depsNixFile.WriteString("    url = \"file://${local ./" + destinationPath + "}\";\n")
+				}
+			}
 			depsNixFile.WriteString("  })\n")
 		}
 
@@ -160,6 +190,8 @@ var rootCmd = &cobra.Command{
 }
 
 func main() {
-	rootCmd.Flags().BoolP("skip-packages-not-found", "s", false, "Skip packages that cannot be found in the local NuGet cache")
+	flags := rootCmd.Flags()
+	flags.BoolP("skip-packages-not-found", "s", false, "Skip packages that cannot be found in the local NuGet cache")
+	flags.StringArrayP("copy-dependencies", "c", []string{}, "Copy specific dependencies to a local directory and reference them instead of the global NuGet repository (format: PackageName:PackageVersion)")
 	rootCmd.Execute()
 }
