@@ -2,6 +2,8 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path"
@@ -50,7 +52,9 @@ var rootCmd = &cobra.Command{
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		rootDir := args[0]
-		skipPackagesNotFound, _ := cmd.Flags().GetBool("skip-packages-not-found")
+		flags := cmd.Flags()
+		skipPackagesNotFound, _ := flags.GetBool("skip-packages-not-found")
+		localCache, _ := flags.GetBool("local-cache")
 
 		if _, err := os.Stat(rootDir); os.IsNotExist(err) {
 			return err
@@ -140,6 +144,10 @@ var rootCmd = &cobra.Command{
 		}
 		defer depsNixFile.Close()
 
+		if localCache {
+			os.Mkdir("dependencies", 0755)
+		}
+
 		depsNixFile.WriteString("{ fetchNuGet }: [\n")
 
 		for _, pkg := range packages {
@@ -150,6 +158,15 @@ var rootCmd = &cobra.Command{
 			depsNixFile.WriteString("    pname = \"" + pkg.Name + "\";\n")
 			depsNixFile.WriteString("    version = \"" + pkg.Version + "\";\n")
 			depsNixFile.WriteString("    sha256 = \"" + pkg.Hash + "\";\n")
+			if localCache {
+				filename := strings.ToLower(pkg.Name) + "." + strings.ToLower(pkg.Version) + ".nupkg"
+				destinationPath := path.Join("dependencies", filename)
+				destination, _ := os.Create(destinationPath)
+				sourcePath := path.Join(nugetDir, strings.ToLower(pkg.Name), strings.ToLower(pkg.Version), filename)
+				source, _ := os.Open(sourcePath)
+				io.Copy(destination, source)
+				depsNixFile.WriteString("    url = \"file://${toString ./" + destinationPath + "}\";\n")
+			}
 			depsNixFile.WriteString("  })\n")
 		}
 
@@ -160,6 +177,8 @@ var rootCmd = &cobra.Command{
 }
 
 func main() {
-	rootCmd.Flags().BoolP("skip-packages-not-found", "s", false, "Skip packages that cannot be found in the local NuGet cache")
+	flags := rootCmd.Flags()
+	flags.BoolP("skip-packages-not-found", "s", false, "Skip packages that cannot be found in the local NuGet cache")
+	flags.BoolP("local-cache", "l", false, "Copy the .nupkg files to a local directory and reference them instead of the global NuGet repository")
 	rootCmd.Execute()
 }
