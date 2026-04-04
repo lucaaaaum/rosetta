@@ -2,7 +2,6 @@ package main
 
 import (
 	"encoding/json"
-	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -54,7 +53,7 @@ var rootCmd = &cobra.Command{
 		rootDir := args[0]
 		flags := cmd.Flags()
 		skipPackagesNotFound, _ := flags.GetBool("skip-packages-not-found")
-		localCache, _ := flags.GetBool("local-cache")
+		copyDependencies, _ := flags.GetStringArray("copy-dependencies")
 
 		if _, err := os.Stat(rootDir); os.IsNotExist(err) {
 			return err
@@ -144,11 +143,23 @@ var rootCmd = &cobra.Command{
 		}
 		defer depsNixFile.Close()
 
-		if localCache {
+		if len(copyDependencies) > 0 {
 			os.Mkdir("dependencies", 0755)
+			depsNixFile.WriteString(
+`{ fetchNuGet }:
+let
+	local = path: builtins.path { inherit path; };
+in
+[
+`,
+			)
+		} else {
+			depsNixFile.WriteString(
+`{ fetchNuGet }: 
+[
+`,
+			)
 		}
-
-		depsNixFile.WriteString("{ fetchNuGet }: [\n")
 
 		for _, pkg := range packages {
 			if pkg.Hash == "" {
@@ -158,14 +169,16 @@ var rootCmd = &cobra.Command{
 			depsNixFile.WriteString("    pname = \"" + pkg.Name + "\";\n")
 			depsNixFile.WriteString("    version = \"" + pkg.Version + "\";\n")
 			depsNixFile.WriteString("    sha256 = \"" + pkg.Hash + "\";\n")
-			if localCache {
-				filename := strings.ToLower(pkg.Name) + "." + strings.ToLower(pkg.Version) + ".nupkg"
-				destinationPath := path.Join("dependencies", filename)
-				destination, _ := os.Create(destinationPath)
-				sourcePath := path.Join(nugetDir, strings.ToLower(pkg.Name), strings.ToLower(pkg.Version), filename)
-				source, _ := os.Open(sourcePath)
-				io.Copy(destination, source)
-				depsNixFile.WriteString("    url = \"file://${toString ./" + destinationPath + "}\";\n")
+			for _, copyDependency := range copyDependencies {
+				if copyDependency == pkg.Name+":"+pkg.Version {
+					filename := strings.ToLower(pkg.Name) + "." + strings.ToLower(pkg.Version) + ".nupkg"
+					destinationPath := path.Join("dependencies", filename)
+					destination, _ := os.Create(destinationPath)
+					sourcePath := path.Join(nugetDir, strings.ToLower(pkg.Name), strings.ToLower(pkg.Version), filename)
+					source, _ := os.Open(sourcePath)
+					io.Copy(destination, source)
+					depsNixFile.WriteString("    url = \"file://${local ./" + destinationPath + "}\";\n")
+				}
 			}
 			depsNixFile.WriteString("  })\n")
 		}
@@ -179,6 +192,6 @@ var rootCmd = &cobra.Command{
 func main() {
 	flags := rootCmd.Flags()
 	flags.BoolP("skip-packages-not-found", "s", false, "Skip packages that cannot be found in the local NuGet cache")
-	flags.BoolP("local-cache", "l", false, "Copy the .nupkg files to a local directory and reference them instead of the global NuGet repository")
+	flags.StringArrayP("copy-dependencies", "c", []string{}, "Copy specific dependencies to a local directory and reference them instead of the global NuGet repository (format: PackageName:PackageVersion)")
 	rootCmd.Execute()
 }
